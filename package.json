@@ -1,0 +1,27 @@
+{
+  "name": "bola-secure-microservices",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Microservices Node.js + Express + MySQL + JWT dengan pencegahan BOLA berlapis",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start:gateway": "node services/api-gateway/src/index.js",
+    "start:auth": "node services/auth-service/src/index.js",
+    "start:order": "node services/order-service/src/index.js",
+    "start:invoice": "node services/invoice-service/src/index.js",
+    "start:policy": "node services/policy-service/src/index.js",
+    "test:policy": "node --test services/policy-service/test/policies.test.js",
+    "scan:bola": "node tools/bola-scanner.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "http-proxy-middleware": "^3.0.3",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.5",
+    "zod": "^3.23.8"
+  }
+}

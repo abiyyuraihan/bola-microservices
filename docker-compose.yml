@@ -1,0 +1,109 @@
+name: bola-secure-ms
+
+# Hanya api-gateway yang dipublish ke host. Service lain hanya bisa dijangkau
+# lewat jaringan internal docker, sehingga Policy Enforcement Point tidak bisa di-bypass.
+x-app: &app
+  build: .
+  restart: unless-stopped
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?isi di .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      # -h 127.0.0.1 (TCP) supaya tidak lolos saat server init sementara (skip-networking)
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  policy-service:
+    <<: *app
+    command: ["node", "services/policy-service/src/index.js"]
+    environment:
+      PORT: 3004
+      DB_HOST: mysql
+      DB_USER: policy_svc
+      DB_PASSWORD: policy_dev_pw
+      DB_NAME: policy_db
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?isi di .env}
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  auth-service:
+    <<: *app
+    command: ["node", "services/auth-service/src/index.js"]
+    environment:
+      PORT: 3001
+      DB_HOST: mysql
+      DB_USER: auth_svc
+      DB_PASSWORD: auth_dev_pw
+      DB_NAME: auth_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?isi di .env}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  order-service:
+    <<: *app
+    command: ["node", "services/order-service/src/index.js"]
+    environment:
+      PORT: 3002
+      DB_HOST: mysql
+      DB_USER: order_svc
+      DB_PASSWORD: order_dev_pw
+      DB_NAME: order_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?isi di .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?isi di .env}
+      POLICY_SERVICE_URL: http://policy-service:3004
+    depends_on:
+      mysql: { condition: service_healthy }
+      policy-service: { condition: service_started }
+
+  invoice-service:
+    <<: *app
+    command: ["node", "services/invoice-service/src/index.js"]
+    environment:
+      PORT: 3003
+      DB_HOST: mysql
+      DB_USER: invoice_svc
+      DB_PASSWORD: invoice_dev_pw
+      DB_NAME: invoice_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?isi di .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?isi di .env}
+      POLICY_SERVICE_URL: http://policy-service:3004
+      ORDER_SERVICE_URL: http://order-service:3002
+    depends_on:
+      mysql: { condition: service_healthy }
+      policy-service: { condition: service_started }
+      order-service: { condition: service_started }
+
+  api-gateway:
+    <<: *app
+    command: ["node", "services/api-gateway/src/index.js"]
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?isi di .env}
+      AUTH_SERVICE_URL: http://auth-service:3001
+      ORDER_SERVICE_URL: http://order-service:3002
+      INVOICE_SERVICE_URL: http://invoice-service:3003
+      USER_RATE_LIMIT: ${USER_RATE_LIMIT:-120}
+      WRITE_RATE_LIMIT: ${WRITE_RATE_LIMIT:-30}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-30}
+      DENY_THRESHOLD: ${DENY_THRESHOLD:-25}
+    depends_on:
+      - auth-service
+      - order-service
+      - invoice-service
+
+volumes:
+  mysql-data:
